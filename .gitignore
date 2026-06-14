@@ -16,6 +16,9 @@ dist/
 *.log
 settings.json
 
+# Instructions personnelles (privées)
+CLAUDE.local.md
+
 # OS
 Thumbs.db
 desktop.ini
