@@ -24,11 +24,11 @@ au clavier.
 
 ## Lancer depuis les sources
 
+Dépendances gérées avec [uv](https://docs.astral.sh/uv/) :
+
 ```bash
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
+uv sync          # crée l'environnement et installe les dépendances
+uv run main.py   # lance l'application
 ```
 
 ## Architecture

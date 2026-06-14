@@ -10,12 +10,17 @@ sur tout le reste.**
 
 ## Lancer / dépendances
 
+Gestion des dépendances avec **uv** (et non pip/venv). Les dépendances sont
+déclarées dans `pyproject.toml` ; `uv.lock` verrouille les versions exactes
+(versionné, à committer).
+
 ```bash
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
+uv sync          # crée .venv + installe les deps verrouillées
+uv run main.py   # lance l'app dans l'environnement (pas besoin d'activer .venv)
 ```
+
+Ajouter / retirer une dépendance : `uv add <pkg>` / `uv remove <pkg>`
+(met à jour `pyproject.toml` et `uv.lock` automatiquement).
 
 Pas de tests ni de linter configurés pour l'instant.
 

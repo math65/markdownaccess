@@ -1,4 +1,0 @@
-wxPython>=4.2.0
-accessible_output2>=0.14
-mistune>=3.0.0
-polib>=1.2.0

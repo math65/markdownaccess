@@ -1,0 +1,16 @@
+[project]
+name = "markdownaccess"
+version = "0.1.0"
+description = "Éditeur Markdown accessible aux lecteurs d'écran (NVDA, JAWS)"
+requires-python = ">=3.10"
+dependencies = [
+    "wxPython>=4.2.0",
+    "accessible_output2>=0.14",
+    "mistune>=3.0.0",
+    "polib>=1.2.0",
+]
+
+[tool.uv]
+# MarkdownAccess est une application (main.py + paquet app/), pas une lib à
+# installer/packager. On dit à uv de ne pas tenter de « build » le projet lui-même.
+package = false
