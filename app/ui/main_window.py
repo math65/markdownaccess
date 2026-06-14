@@ -326,7 +326,9 @@ class MainWindow(wx.Frame):
     def _on_new(self, evt):
         if not self._confirm_discard():
             return
-        self.editor.SetValue("")
+        # ChangeValue (et non SetValue) : écriture programmatique qui ne doit pas
+        # émettre EVT_TEXT, sinon le document neuf serait aussitôt « modifié ».
+        self.editor.ChangeValue("")
         self.document = Document()
         self.actions = MarkdownActions(self.editor)
         self._update_title()
@@ -350,7 +352,8 @@ class MainWindow(wx.Frame):
             wx.MessageBox(_("Impossible d'ouvrir le fichier : {err}").format(err=exc),
                           APP_NAME, wx.OK | wx.ICON_ERROR)
             return
-        self.editor.SetValue(text)
+        # ChangeValue : pas d'EVT_TEXT, donc pas de faux « modifié » à l'ouverture.
+        self.editor.ChangeValue(text)
         self.document.dirty = False
         self.settings["last_folder"] = os.path.dirname(path)
         cfg.push_recent_file(self.settings, path)
