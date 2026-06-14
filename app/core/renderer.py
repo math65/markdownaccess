@@ -10,6 +10,8 @@ ul/ol, a, table+th) est ce qui rend NVDA efficace en mode navigation.
 import re
 
 from markdown_it import MarkdownIt
+from mdit_py_plugins.footnote import footnote_plugin
+from mdit_py_plugins.tasklists import tasklists_plugin
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -42,6 +44,11 @@ def _build_markdown() -> MarkdownIt:
     md = MarkdownIt("commonmark", {"html": True})
     md.enable("table")
     md.enable("strikethrough")
+    # footnotes : note[^1] + [^1]: ... -> note de bas de page (lien navigable NVDA).
+    md.use(footnote_plugin)
+    # tasklists : - [ ] / - [x] -> cases à cocher. label=True englobe chaque case
+    # dans un <label> (meilleure cible/annonce lecteur d'écran).
+    md.use(tasklists_plugin, enabled=True, label=True)
     md.core.ruler.push("heading_ids", _add_heading_ids)
     return md
 
