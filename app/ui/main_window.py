@@ -19,9 +19,11 @@ except Exception:
 
 from app.core import renderer, settings as cfg, speech
 from app.core import outline as outline_mod
+from app.core import search as search_mod
 from app.core.document import Document
 from app.core.i18n import _translate as _
 from app.core.markdown_actions import MarkdownActions
+from app.ui.find_dialog import FindDialog
 from app.ui.link_dialog import LinkDialog
 from app.version import APP_NAME, __version__
 
@@ -38,6 +40,9 @@ ID_OL = wx.NewIdRef()
 ID_QUOTE = wx.NewIdRef()
 ID_CODEBLOCK = wx.NewIdRef()
 ID_LINK = wx.NewIdRef()
+ID_FIND = wx.NewIdRef()
+ID_FIND_NEXT = wx.NewIdRef()
+ID_FIND_PREV = wx.NewIdRef()
 ID_TOGGLE_PREVIEW = wx.NewIdRef()
 ID_OUTLINE = wx.NewIdRef()
 ID_NEXT_HEADING = wx.NewIdRef()
@@ -50,6 +55,10 @@ class MainWindow(wx.Frame):
         super().__init__(parent, title=APP_NAME, size=(1000, 700))
         self.settings = cfg.load()
         self.document = Document()
+
+        # Dernière recherche (réutilisée par F3 / Maj+F3).
+        self._find_term = ""
+        self._find_case = False
 
         self.panel = wx.Panel(self)
         self.sizer = wx.BoxSizer(wx.VERTICAL)
@@ -153,6 +162,10 @@ class MainWindow(wx.Frame):
         m_edit.Append(wx.ID_COPY, _("&Copier\tCtrl+C"))
         m_edit.Append(wx.ID_PASTE, _("C&oller\tCtrl+V"))
         m_edit.Append(wx.ID_SELECTALL, _("&Tout sélectionner\tCtrl+A"))
+        m_edit.AppendSeparator()
+        m_edit.Append(ID_FIND, _("&Rechercher...\tCtrl+F"))
+        m_edit.Append(ID_FIND_NEXT, _("Rechercher le &suivant\tF3"))
+        m_edit.Append(ID_FIND_PREV, _("Rechercher le &précédent\tShift+F3"))
         mb.Append(m_edit, _("&Édition"))
 
         # Format
@@ -216,6 +229,10 @@ class MainWindow(wx.Frame):
         b(lambda e: self.editor.Copy(), wx.ID_COPY)
         b(lambda e: self.editor.Paste(), wx.ID_PASTE)
         b(lambda e: self.editor.SelectAll(), wx.ID_SELECTALL)
+
+        b(self._on_find, ID_FIND)
+        b(lambda e: self._do_find(forward=True), ID_FIND_NEXT)
+        b(lambda e: self._do_find(forward=False), ID_FIND_PREV)
 
         b(lambda e: self._do(self.actions.bold), ID_BOLD)
         b(lambda e: self._do(self.actions.italic), ID_ITALIC)
@@ -409,6 +426,43 @@ class MainWindow(wx.Frame):
                 self._do(lambda: self.actions.insert_link(text or url, url))
         dlg.Destroy()
 
+    # ---- recherche -----------------------------------------------------
+
+    def _on_find(self, evt):
+        # Pré-remplit avec la sélection courante, sinon le dernier terme.
+        sel = self.editor.GetStringSelection()
+        default = sel if sel else self._find_term
+        dlg = FindDialog(self, default_term=default, case_sensitive=self._find_case)
+        if dlg.ShowModal() == wx.ID_OK:
+            term, case = dlg.get_values()
+            self._find_term = term
+            self._find_case = case
+            self._do_find(forward=True)
+        dlg.Destroy()
+
+    def _do_find(self, forward=True):
+        if not self._find_term:
+            self._on_find(None)
+            return
+        text = self.editor.GetValue()
+        # On repart de la fin de la sélection (avant, en arrière) pour avancer.
+        sel_start, sel_end = self.editor.GetSelection()
+        start = sel_end if forward else sel_start
+        res = search_mod.find(text, self._find_term, start, forward, self._find_case)
+        if res is None:
+            speech.speak(_("Texte introuvable"), interrupt=True)
+            self.statusbar.SetStatusText(_("Texte introuvable"), 0)
+            return
+        a, b = res
+        self.editor.SetSelection(a, b)
+        self.editor.ShowPosition(a)
+        self.editor.SetFocus()
+        # NVDA n'annonce pas une sélection posée par programme : on lit la ligne.
+        res_xy = self.editor.PositionToXY(a)
+        row = res_xy[2] if len(res_xy) == 3 else res_xy[1]
+        speech.speak(self.editor.GetLineText(row), interrupt=True)
+        self._update_cursor()
+
     # ---- aperçu --------------------------------------------------------
 
     def _on_toggle_preview(self, evt=None):
@@ -489,6 +543,7 @@ class MainWindow(wx.Frame):
         text = _(
             "Raccourcis clavier :\n\n"
             "Ctrl+N Nouveau, Ctrl+O Ouvrir, Ctrl+S Enregistrer\n"
+            "Ctrl+F Rechercher, F3 / Maj+F3 Suivant / Précédent\n"
             "Ctrl+B Gras, Ctrl+I Italique, Ctrl+` Code\n"
             "Ctrl+1/2/3 Titres, Ctrl+K Lien\n"
             "Ctrl+Maj+U Liste à puces, Ctrl+Maj+L Liste numérotée\n"
