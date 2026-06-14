@@ -33,16 +33,29 @@ uv add --dev pyinstaller
 uv run pyinstaller --onefile --windowed main.py
 ```
 
-Pièges spécifiques à anticiper :
+Pièges spécifiques à anticiper (vérifiés sur la doc officielle des deps) :
 - **`locales/`** : fichiers de données, non vus par PyInstaller → les ajouter
-  (`--add-data "locales;locales"`) sinon l'anglais disparaît dans l'exe.
-- **WebView2** (aperçu F6) : dépend du runtime Edge installé sur la machine cible
-  (présent sur la plupart des Win11) ; le repli `webbrowser.open` couvre l'absence.
-  À tester sur une machine « propre ».
-- **`accessible_output2`** : embarque parfois mal ses DLL ; vérifier que la synthèse
-  vocale marche dans l'exe final.
+  (`--add-data "locales;locales"`) sinon l'anglais disparaît dans l'exe. Ce sont
+  les `.mo` compilés qui comptent (cf. `polib` ci-dessous).
+- **`accessible_output2`** : ses DLL `nvdaControllerClient32/64.dll` sont des
+  *données* non vues par l'analyse → dans le `.spec`,
+  `datas = collect_data_files('accessible_output2')`. Embarquer aussi **pywin32**
+  (le backend JAWS passe par un COM). Sans ça, l'app est **muette dans l'exe** (le
+  `try/except` de `speech.py` masque l'erreur). Tester la synthèse sur l'exe final.
+- **`mdit_py_plugins`** (footnotes/tasklists de l'aperçu) : sous-modules chargés
+  dynamiquement → `--hidden-import mdit_py_plugins.footnote --hidden-import
+  mdit_py_plugins.tasklists` (ou `collect_submodules`), sinon l'aperçu plante.
+- **WebView2** (aperçu F6) : `WebView2Loader.dll` n'est pas détectée
+  automatiquement → l'inclure (`--add-binary`). Le backend Edge dépend aussi du
+  runtime WebView2 (présent sur la plupart des Win11) ; le repli `webbrowser.open`
+  couvre l'absence. À tester sur une machine « propre ».
 
-À terme : figer ces options dans un `.spec` (recette reproductible).
+`polib` n'est utile **qu'au build** (compilation `.po` → `.mo`), pas au runtime
+(c'est `gettext` qui lit le `.mo`) → le passer en `uv add --dev polib`, il n'a pas
+à être embarqué dans l'exe.
+
+À terme : figer toutes ces options dans un `.spec` (recette reproductible). Détails
+par dépendance dans la mémoire (`ref-*` : accessible-output2, mdit-py-plugins, etc.).
 
 ## Règles d'accessibilité (non négociables)
 
