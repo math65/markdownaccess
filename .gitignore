@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environnement virtuel
+venv/
+.venv/
+
+# Build / distribution
+build/
+dist/
+
+# Logs et réglages locaux
+*.log
+settings.json
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
