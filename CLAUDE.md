@@ -65,8 +65,10 @@ Pièges spécifiques à anticiper :
 - Le **retour F6** depuis l'aperçu passe par un script JS injecté
   (`AddUserScript` + `AddScriptMessageHandler('wx')`) : WebView2 capte le clavier,
   donc l'accélérateur de menu ne reçoit pas la touche.
-- `app/core/renderer.py` (mistune) produit du HTML **sémantique sans CSS** pour
-  l'instant (la sémantique seule rend NVDA efficace ; le CSS viendra plus tard).
+- `app/core/renderer.py` (markdown-it-py, conforme CommonMark) produit du HTML
+  **sémantique sans CSS** pour l'instant (la sémantique seule rend NVDA efficace ;
+  le CSS viendra plus tard). Les `id` d'ancre des titres sont posés par une règle
+  core native (pas de post-traitement HTML).
 
 ## i18n (piège d'ordre d'import)
 
