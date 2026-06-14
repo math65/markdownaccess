@@ -24,6 +24,26 @@ Ajouter / retirer une dépendance : `uv add <pkg>` / `uv remove <pkg>`
 
 Pas de tests ni de linter configurés pour l'instant.
 
+## Packaging .exe (pas encore fait — plan figé)
+
+Cible : **PyInstaller** via uv (cohérent avec AudibleDecoder/DownAccess).
+
+```bash
+uv add --dev pyinstaller
+uv run pyinstaller --onefile --windowed main.py
+```
+
+Pièges spécifiques à anticiper :
+- **`locales/`** : fichiers de données, non vus par PyInstaller → les ajouter
+  (`--add-data "locales;locales"`) sinon l'anglais disparaît dans l'exe.
+- **WebView2** (aperçu F6) : dépend du runtime Edge installé sur la machine cible
+  (présent sur la plupart des Win11) ; le repli `webbrowser.open` couvre l'absence.
+  À tester sur une machine « propre ».
+- **`accessible_output2`** : embarque parfois mal ses DLL ; vérifier que la synthèse
+  vocale marche dans l'exe final.
+
+À terme : figer ces options dans un `.spec` (recette reproductible).
+
 ## Règles d'accessibilité (non négociables)
 
 - Contrôles wx **natifs** uniquement, jamais de widget dessiné à la main
