@@ -33,7 +33,16 @@ class TableDialog(wx.Dialog):
         self.chk_header.SetValue(True)
         sizer.Add(self.chk_header, 0, wx.ALL, 8)
 
-        btns = self.CreateButtonSizer(wx.OK | wx.CANCEL)
+        # Boutons parentés au panneau (et non au dialogue) : un sizer ne peut
+        # positionner que des contrôles enfants de sa fenêtre. CreateButtonSizer
+        # les parenterait au dialogue → assertion wx. Voir find_dialog.py.
+        ok = wx.Button(panel, wx.ID_OK)
+        cancel = wx.Button(panel, wx.ID_CANCEL)
+        ok.SetDefault()
+        btns = wx.StdDialogButtonSizer()
+        btns.AddButton(ok)
+        btns.AddButton(cancel)
+        btns.Realize()
         sizer.Add(btns, 0, wx.EXPAND | wx.ALL, 8)
 
         panel.SetSizer(sizer)
