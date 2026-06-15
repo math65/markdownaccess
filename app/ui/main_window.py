@@ -27,6 +27,7 @@ from app.core import updater
 from app.core.document import Document
 from app.core.i18n import _translate as _, get_current_language_code
 from app.core.markdown_actions import MarkdownActions
+from app.ui.announcement_dialog import AnnouncementDialog
 from app.ui.contact_dialog import ContactDialog
 from app.ui.error_report_dialog import ErrorReportDialog
 from app.ui.find_dialog import FindDialog
@@ -799,8 +800,21 @@ class MainWindow(wx.Frame):
                 return
 
             title = ann.get("title") or APP_NAME
-            icon = wx.ICON_WARNING if ann.get("style") == "warning" else wx.ICON_INFORMATION
-            wx.MessageBox(body, title, wx.OK | icon, self)
+            link_url = ann.get("link_url") or ""
+            if link_url:
+                # Annonce « interactive » : dialogue avec bouton lien + /click.
+                iid = self.settings.get("install_id", "")
+                dlg = AnnouncementDialog(
+                    self, title=title, body=body,
+                    link_label=ann.get("link_label") or "",
+                    link_url=link_url,
+                    on_link=(lambda: announce.click_announcement(iid, ann_id)) if ann_id else None,
+                )
+                dlg.ShowModal()
+                dlg.Destroy()
+            else:
+                icon = wx.ICON_WARNING if ann.get("style") == "warning" else wx.ICON_INFORMATION
+                wx.MessageBox(body, title, wx.OK | icon, self)
 
             if mode == "once" and ann_id:
                 seen = self.settings.setdefault("seen_announcements", [])
