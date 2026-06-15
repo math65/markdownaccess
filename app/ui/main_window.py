@@ -800,13 +800,16 @@ class MainWindow(wx.Frame):
                 return
 
             title = ann.get("title") or APP_NAME
-            link_url = ann.get("link_url") or ""
+            # /announce/check renvoie le lien comme objet imbriqué {label, url}
+            # (déjà localisé par le backend), ou null. Pas de champs plats.
+            link = ann.get("link") or {}
+            link_url = link.get("url") or ""
             if link_url:
                 # Annonce « interactive » : dialogue avec bouton lien + /click.
                 iid = self.settings.get("install_id", "")
                 dlg = AnnouncementDialog(
                     self, title=title, body=body,
-                    link_label=ann.get("link_label") or "",
+                    link_label=link.get("label") or "",
                     link_url=link_url,
                     on_link=(lambda: announce.click_announcement(iid, ann_id)) if ann_id else None,
                 )
