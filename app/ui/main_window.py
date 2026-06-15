@@ -5,8 +5,10 @@ formatage assisté avec annonces vocales, navigation par titres, et aperçu HTML
 bascule (F6) via wx.html2.WebView (WebView2) avec repli navigateur.
 """
 
+import logging
 import os
 import tempfile
+import threading
 import webbrowser
 
 import wx
@@ -20,13 +22,15 @@ except Exception:
 from app.core import renderer, settings as cfg, speech
 from app.core import outline as outline_mod
 from app.core import search as search_mod
+from app.core import updater
 from app.core.document import Document
-from app.core.i18n import _translate as _
+from app.core.i18n import _translate as _, get_current_language_code
 from app.core.markdown_actions import MarkdownActions
 from app.ui.find_dialog import FindDialog
 from app.ui.link_dialog import LinkDialog
 from app.ui.preferences_dialog import PreferencesDialog
 from app.ui.table_dialog import TableDialog
+from app.ui.update_dialog import UpdateDialog
 from app.version import APP_NAME, __version__
 
 # IDs personnalisés (non traduits, usage interne).
@@ -55,6 +59,7 @@ ID_TOGGLE_PREVIEW = wx.NewIdRef()
 ID_OUTLINE = wx.NewIdRef()
 ID_NEXT_HEADING = wx.NewIdRef()
 ID_PREV_HEADING = wx.NewIdRef()
+ID_CHECK_UPDATES = wx.NewIdRef()
 ID_SHORTCUTS = wx.NewIdRef()
 
 
@@ -67,6 +72,11 @@ class MainWindow(wx.Frame):
         # Dernière recherche (réutilisée par F3 / Maj+F3).
         self._find_term = ""
         self._find_case = False
+
+        # État de l'auto-updateur.
+        self._update_check_in_progress = False
+        self._startup_update_check_scheduled = False
+        self._is_installing_update = False
 
         self.panel = wx.Panel(self)
         self.sizer = wx.BoxSizer(wx.VERTICAL)
@@ -215,6 +225,8 @@ class MainWindow(wx.Frame):
 
         # Aide
         m_help = wx.Menu()
+        m_help.Append(ID_CHECK_UPDATES, _("&Vérifier les mises à jour..."))
+        m_help.AppendSeparator()
         m_help.Append(ID_SHORTCUTS, _("&Raccourcis clavier"))
         m_help.Append(wx.ID_ABOUT, _("À &propos de MarkdownAccess"))
         mb.Append(m_help, _("&Aide"))
@@ -275,6 +287,7 @@ class MainWindow(wx.Frame):
         b(lambda e: self._jump_heading(forward=True), ID_NEXT_HEADING)
         b(lambda e: self._jump_heading(forward=False), ID_PREV_HEADING)
 
+        b(self.on_check_updates, ID_CHECK_UPDATES)
         b(self._on_shortcuts, ID_SHORTCUTS)
         b(self._on_about, wx.ID_ABOUT)
 
@@ -484,6 +497,8 @@ class MainWindow(wx.Frame):
             self,
             language=self.settings.get("language", "auto"),
             word_wrap=self.settings.get("word_wrap", True),
+            update_channel=self.settings.get("update_channel", "stable"),
+            check_updates_on_startup=self.settings.get("check_updates_on_startup", True),
         )
         if dlg.ShowModal() == wx.ID_OK:
             self.settings.update(dlg.get_values())
@@ -646,6 +661,102 @@ class MainWindow(wx.Frame):
             f"{APP_NAME} {__version__}\n\n" +
             _("Éditeur Markdown accessible pour NVDA."),
             _("À propos de MarkdownAccess"), wx.OK | wx.ICON_INFORMATION)
+
+    # ---- mises à jour --------------------------------------------------
+
+    def on_check_updates(self, evt):
+        """Vérification manuelle depuis le menu Aide."""
+        if not updater.is_frozen():
+            wx.MessageBox(
+                _("La mise à jour automatique n'est disponible que dans la "
+                  "version installée de l'application."),
+                APP_NAME, wx.OK | wx.ICON_INFORMATION)
+            return
+        self._start_update_check(interactive=True)
+
+    def schedule_startup_update_check(self):
+        """Planifie une vérif silencieuse au démarrage (si activée et gelé)."""
+        if self._startup_update_check_scheduled:
+            return
+        if not updater.is_frozen():
+            return
+        if not self.settings.get("check_updates_on_startup", True):
+            return
+        self._startup_update_check_scheduled = True
+        wx.CallLater(1500, lambda: self._start_update_check(interactive=False))
+
+    def _start_update_check(self, interactive):
+        if self._update_check_in_progress:
+            return
+        self._update_check_in_progress = True
+        if interactive:
+            self.statusbar.SetStatusText(_("Recherche de mises à jour..."), 0)
+        threading.Thread(
+            target=self._update_check_worker, args=(interactive,), daemon=True
+        ).start()
+
+    def _update_check_worker(self, interactive):
+        release_info = None
+        error_message = None
+        try:
+            include_pre = self.settings.get("update_channel", "stable") == "beta"
+            release_info = updater.fetch_latest_release(
+                lang=get_current_language_code(),
+                include_prerelease=include_pre,
+            )
+        except updater.UpdateCheckError as exc:
+            error_message = str(exc)
+        except Exception:
+            logging.getLogger("markdownaccess").exception("Erreur de vérification de mise à jour.")
+            error_message = _("Impossible de vérifier les mises à jour.")
+        wx.CallAfter(self._finish_update_check, interactive, release_info, error_message)
+
+    def _finish_update_check(self, interactive, release_info, error_message):
+        self._update_check_in_progress = False
+
+        if error_message:
+            if interactive:
+                wx.MessageBox(error_message, APP_NAME, wx.OK | wx.ICON_ERROR)
+                self.statusbar.SetStatusText(_("Échec de la vérification."), 0)
+            else:
+                logging.getLogger("markdownaccess").info(
+                    "Vérification auto ignorée : %s", error_message)
+            return
+
+        if not release_info or not updater.is_release_newer(release_info.version):
+            if interactive:
+                wx.MessageBox(_("Vous utilisez la dernière version."),
+                              APP_NAME, wx.OK | wx.ICON_INFORMATION)
+                self.statusbar.SetStatusText(_("À jour."), 0)
+            else:
+                logging.getLogger("markdownaccess").info(
+                    "Vérification auto : aucune nouvelle version.")
+            return
+
+        self.statusbar.SetStatusText(
+            _("Mise à jour disponible : {v}").format(v=release_info.version), 0)
+        dlg = UpdateDialog(self, release_info)
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def begin_install_update(self, installer_path, version):
+        """Ferme l'app et lance l'installeur silencieux. Le redémarrage est
+        assuré par la section [Run] du script Inno. Retourne False si annulé."""
+        # Protège un document modifié avant de tout fermer.
+        if not self._confirm_discard():
+            return False
+        try:
+            updater.save_updater_state(installer_path, version, cleanup_pending=True)
+            updater.launch_installer_after_exit(installer_path)
+        except Exception:
+            updater.clear_updater_state()
+            logging.getLogger("markdownaccess").exception("Lancement de l'installeur impossible.")
+            wx.MessageBox(_("Impossible de lancer l'installeur de mise à jour."),
+                          APP_NAME, wx.OK | wx.ICON_ERROR)
+            return False
+        self._is_installing_update = True
+        self.Destroy()
+        return True
 
     # ---- fermeture -----------------------------------------------------
 

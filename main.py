@@ -13,11 +13,19 @@ def main():
     settings = cfg.load()
     i18n.install_language(settings.get("language", "auto"))
 
+    # Purge un installeur téléchargé lors d'une mise à jour précédente.
+    from app.core import updater
+    try:
+        updater.cleanup_update_artifacts()
+    except Exception:
+        pass
+
     from app.ui.main_window import MainWindow
 
     app = wx.App(False)
     frame = MainWindow(None)
     frame.Show()
+    frame.schedule_startup_update_check()
     app.MainLoop()
 
 

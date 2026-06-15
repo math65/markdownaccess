@@ -19,6 +19,8 @@ DEFAULTS: dict = {
     "window_size": [1000, 700],
     "window_pos": None,                 # None -> centré
     "install_id": "",
+    "update_channel": "stable",         # stable | beta (inclut les préversions)
+    "check_updates_on_startup": True,   # vérifier sur GitHub au démarrage
 }
 
 MAX_RECENT_FILES = 10

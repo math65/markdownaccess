@@ -19,9 +19,16 @@ _LANGUAGES = [
     ("en", "English"),
 ]
 
+# (valeur stockée, msgid du libellé) pour le canal de mise à jour.
+_CHANNELS = [
+    ("stable", "Stable"),
+    ("beta", "Beta (préversions)"),
+]
+
 
 class PreferencesDialog(wx.Dialog):
-    def __init__(self, parent, language="auto", word_wrap=True):
+    def __init__(self, parent, language="auto", word_wrap=True,
+                 update_channel="stable", check_updates_on_startup=True):
         super().__init__(parent, title=_("Préférences"))
         panel = wx.Panel(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -41,6 +48,22 @@ class PreferencesDialog(wx.Dialog):
             name=_("Retour à la ligne automatique"))
         self.chk_wrap.SetValue(bool(word_wrap))
         sizer.Add(self.chk_wrap, 0, wx.ALL, 8)
+
+        sizer.Add(wx.StaticText(panel, label=_("Canal de mise à jour :")),
+                  0, wx.ALL, 4)
+        self.choice_channel = wx.Choice(
+            panel, choices=[_(msgid) for _val, msgid in _CHANNELS],
+            name=_("Canal de mise à jour"))
+        chan_values = [val for val, _label in _CHANNELS]
+        self.choice_channel.SetSelection(chan_values.index(update_channel)
+                                         if update_channel in chan_values else 0)
+        sizer.Add(self.choice_channel, 0, wx.EXPAND | wx.ALL, 4)
+
+        self.chk_check_updates = wx.CheckBox(
+            panel, label=_("Vérifier les mises à jour au démarrage"),
+            name=_("Vérifier les mises à jour au démarrage"))
+        self.chk_check_updates.SetValue(bool(check_updates_on_startup))
+        sizer.Add(self.chk_check_updates, 0, wx.ALL, 8)
 
         # Boutons parentés au panneau (et non au dialogue) : un sizer ne peut
         # positionner que des contrôles enfants de sa fenêtre. CreateButtonSizer
@@ -62,4 +85,10 @@ class PreferencesDialog(wx.Dialog):
 
     def get_values(self):
         lang = _LANGUAGES[self.choice_lang.GetSelection()][0]
-        return {"language": lang, "word_wrap": self.chk_wrap.GetValue()}
+        channel = _CHANNELS[self.choice_channel.GetSelection()][0]
+        return {
+            "language": lang,
+            "word_wrap": self.chk_wrap.GetValue(),
+            "update_channel": channel,
+            "check_updates_on_startup": self.chk_check_updates.GetValue(),
+        }
