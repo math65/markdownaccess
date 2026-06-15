@@ -1,8 +1,30 @@
+import logging
+import sys
+import traceback
+
 import wx
 
 from app.core import logger as _logger
 from app.core import settings as cfg
 from app.core import i18n
+
+
+def _install_excepthook(frame):
+    """Sur exception non gérée : log + propose un rapport d'erreur (si l'app vit)."""
+    log = logging.getLogger("markdownaccess")
+
+    def hook(exc_type, exc, tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc, tb)
+            return
+        message = "".join(traceback.format_exception(exc_type, exc, tb))
+        log.error("Exception non gérée :\n%s", message)
+        try:
+            wx.CallAfter(frame.show_error_report, message)
+        except Exception:
+            pass
+
+    sys.excepthook = hook
 
 
 def main():
@@ -24,8 +46,9 @@ def main():
 
     app = wx.App(False)
     frame = MainWindow(None)
+    _install_excepthook(frame)
     frame.Show()
-    frame.schedule_startup_update_check()
+    frame.run_startup_checks()
     app.MainLoop()
 
 

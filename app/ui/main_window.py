@@ -9,6 +9,7 @@ import logging
 import os
 import tempfile
 import threading
+import uuid
 import webbrowser
 
 import wx
@@ -19,13 +20,15 @@ try:
 except Exception:
     _HAS_HTML2 = False
 
-from app.core import renderer, settings as cfg, speech
+from app.core import announce, renderer, settings as cfg, speech
 from app.core import outline as outline_mod
 from app.core import search as search_mod
 from app.core import updater
 from app.core.document import Document
 from app.core.i18n import _translate as _, get_current_language_code
 from app.core.markdown_actions import MarkdownActions
+from app.ui.contact_dialog import ContactDialog
+from app.ui.error_report_dialog import ErrorReportDialog
 from app.ui.find_dialog import FindDialog
 from app.ui.link_dialog import LinkDialog
 from app.ui.preferences_dialog import PreferencesDialog
@@ -59,6 +62,7 @@ ID_TOGGLE_PREVIEW = wx.NewIdRef()
 ID_OUTLINE = wx.NewIdRef()
 ID_NEXT_HEADING = wx.NewIdRef()
 ID_PREV_HEADING = wx.NewIdRef()
+ID_CONTACT = wx.NewIdRef()
 ID_CHECK_UPDATES = wx.NewIdRef()
 ID_SHORTCUTS = wx.NewIdRef()
 
@@ -225,6 +229,7 @@ class MainWindow(wx.Frame):
 
         # Aide
         m_help = wx.Menu()
+        m_help.Append(ID_CONTACT, _("&Contacter le support..."))
         m_help.Append(ID_CHECK_UPDATES, _("&Vérifier les mises à jour..."))
         m_help.AppendSeparator()
         m_help.Append(ID_SHORTCUTS, _("&Raccourcis clavier"))
@@ -287,6 +292,7 @@ class MainWindow(wx.Frame):
         b(lambda e: self._jump_heading(forward=True), ID_NEXT_HEADING)
         b(lambda e: self._jump_heading(forward=False), ID_PREV_HEADING)
 
+        b(self._on_contact, ID_CONTACT)
         b(self.on_check_updates, ID_CHECK_UPDATES)
         b(self._on_shortcuts, ID_SHORTCUTS)
         b(self._on_about, wx.ID_ABOUT)
@@ -674,8 +680,9 @@ class MainWindow(wx.Frame):
             return
         self._start_update_check(interactive=True)
 
-    def schedule_startup_update_check(self):
-        """Planifie une vérif silencieuse au démarrage (si activée et gelé)."""
+    def _maybe_start_update_check(self):
+        """Lance la vérif MAJ silencieuse si activée et gelé. Appelée APRÈS le
+        traitement de l'annonce (jamais en parallèle d'une modale d'annonce)."""
         if self._startup_update_check_scheduled:
             return
         if not updater.is_frozen():
@@ -683,7 +690,7 @@ class MainWindow(wx.Frame):
         if not self.settings.get("check_updates_on_startup", True):
             return
         self._startup_update_check_scheduled = True
-        wx.CallLater(1500, lambda: self._start_update_check(interactive=False))
+        self._start_update_check(interactive=False)
 
     def _start_update_check(self, interactive):
         if self._update_check_in_progress:
@@ -757,6 +764,79 @@ class MainWindow(wx.Frame):
         self._is_installing_update = True
         self.Destroy()
         return True
+
+    # ---- backend : annonces / contact / rapport -----------------------
+
+    def run_startup_checks(self):
+        """Au démarrage : annonce d'abord, PUIS mise à jour (jamais les deux
+        modales en même temps). La vérif MAJ est enchaînée à la fin du traitement
+        de l'annonce — voir _on_announcement_received."""
+        self.check_announcement_at_startup()
+
+    def check_announcement_at_startup(self):
+        install_id = self.settings.get("install_id", "")
+        if not install_id:
+            install_id = uuid.uuid4().hex
+            self.settings["install_id"] = install_id
+            cfg.save(self.settings)
+        announce.check_announcement(
+            install_id,
+            on_done=lambda ann: wx.CallAfter(self._on_announcement_received, ann),
+        )
+
+    def _on_announcement_received(self, ann):
+        """Affiche l'annonce (si non vue), puis enchaîne la vérif MAJ."""
+        try:
+            if not ann:
+                return
+            body = ann.get("body") or ""
+            if not body:
+                return
+            ann_id = ann.get("id") or ""
+            mode = ann.get("mode") or "every"
+            seen = self.settings.get("seen_announcements", [])
+            if mode == "once" and ann_id in seen:
+                return
+
+            title = ann.get("title") or APP_NAME
+            icon = wx.ICON_WARNING if ann.get("style") == "warning" else wx.ICON_INFORMATION
+            wx.MessageBox(body, title, wx.OK | icon, self)
+
+            if mode == "once" and ann_id:
+                seen = self.settings.setdefault("seen_announcements", [])
+                if ann_id not in seen:
+                    seen.append(ann_id)
+                    cfg.save(self.settings)
+            if ann_id:
+                announce.ack_announcement(self.settings.get("install_id", ""), ann_id)
+        finally:
+            # Quoi qu'il arrive (annonce affichée, déjà vue, ou aucune), on
+            # enchaîne la vérif MAJ — jamais avant la fermeture de l'annonce.
+            self._maybe_start_update_check()
+
+    def _save_support_email(self, email):
+        self.settings["support_email"] = email
+        cfg.save(self.settings)
+
+    def _on_contact(self, evt):
+        dlg = ContactDialog(
+            self,
+            saved_email=self.settings.get("support_email", ""),
+            on_email_saved=self._save_support_email,
+        )
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def show_error_report(self, error_message):
+        """Ouvre le dialogue de rapport d'erreur (appelé par l'excepthook)."""
+        dlg = ErrorReportDialog(
+            self,
+            error_message=error_message,
+            saved_email=self.settings.get("support_email", ""),
+            on_email_saved=self._save_support_email,
+        )
+        dlg.ShowModal()
+        dlg.Destroy()
 
     # ---- fermeture -----------------------------------------------------
 

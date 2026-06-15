@@ -21,6 +21,8 @@ DEFAULTS: dict = {
     "install_id": "",
     "update_channel": "stable",         # stable | beta (inclut les préversions)
     "check_updates_on_startup": True,   # vérifier sur GitHub au démarrage
+    "seen_announcements": [],           # ids des annonces "once" déjà vues
+    "support_email": "",                # email mémorisé (contact / rapport)
 }
 
 MAX_RECENT_FILES = 10
