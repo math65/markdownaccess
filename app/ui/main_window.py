@@ -25,13 +25,21 @@ from app.core.i18n import _translate as _
 from app.core.markdown_actions import MarkdownActions
 from app.ui.find_dialog import FindDialog
 from app.ui.link_dialog import LinkDialog
+from app.ui.preferences_dialog import PreferencesDialog
+from app.ui.table_dialog import TableDialog
 from app.version import APP_NAME, __version__
 
 # IDs personnalisés (non traduits, usage interne).
 ID_EXPORT_HTML = wx.NewIdRef()
+ID_PREFS = wx.NewIdRef()
 ID_BOLD = wx.NewIdRef()
 ID_ITALIC = wx.NewIdRef()
 ID_CODE = wx.NewIdRef()
+ID_STRIKE = wx.NewIdRef()
+ID_TASK = wx.NewIdRef()
+ID_TASK_DONE = wx.NewIdRef()
+ID_FOOTNOTE = wx.NewIdRef()
+ID_TABLE = wx.NewIdRef()
 ID_H1 = wx.NewIdRef()
 ID_H2 = wx.NewIdRef()
 ID_H3 = wx.NewIdRef()
@@ -145,6 +153,9 @@ class MainWindow(wx.Frame):
         m_file = wx.Menu()
         m_file.Append(wx.ID_NEW, _("&Nouveau\tCtrl+N"))
         m_file.Append(wx.ID_OPEN, _("&Ouvrir...\tCtrl+O"))
+        self.recent_menu = wx.Menu()
+        m_file.AppendSubMenu(self.recent_menu, _("Fichiers &récents"))
+        self._rebuild_recent_menu()
         m_file.Append(wx.ID_SAVE, _("&Enregistrer\tCtrl+S"))
         m_file.Append(wx.ID_SAVEAS, _("Enregistrer &sous...\tCtrl+Shift+S"))
         m_file.AppendSeparator()
@@ -166,6 +177,8 @@ class MainWindow(wx.Frame):
         m_edit.Append(ID_FIND, _("&Rechercher...\tCtrl+F"))
         m_edit.Append(ID_FIND_NEXT, _("Rechercher le &suivant\tF3"))
         m_edit.Append(ID_FIND_PREV, _("Rechercher le &précédent\tShift+F3"))
+        m_edit.AppendSeparator()
+        m_edit.Append(ID_PREFS, _("&Préférences..."))
         mb.Append(m_edit, _("&Édition"))
 
         # Format
@@ -173,6 +186,7 @@ class MainWindow(wx.Frame):
         m_fmt.Append(ID_BOLD, _("&Gras\tCtrl+B"))
         m_fmt.Append(ID_ITALIC, _("&Italique\tCtrl+I"))
         m_fmt.Append(ID_CODE, _("Code &inline\tCtrl+`"))
+        m_fmt.Append(ID_STRIKE, _("Ba&rré\tCtrl+Shift+X"))
         m_fmt.AppendSeparator()
         m_fmt.Append(ID_H1, _("Titre niveau &1\tCtrl+1"))
         m_fmt.Append(ID_H2, _("Titre niveau &2\tCtrl+2"))
@@ -182,8 +196,12 @@ class MainWindow(wx.Frame):
         m_fmt.Append(ID_OL, _("Liste &numérotée\tCtrl+Shift+L"))
         m_fmt.Append(ID_QUOTE, _("&Citation\tCtrl+Q"))
         m_fmt.Append(ID_CODEBLOCK, _("&Bloc de code\tCtrl+Shift+K"))
+        m_fmt.Append(ID_TASK, _("&Tâche (case à cocher)\tCtrl+Shift+T"))
+        m_fmt.Append(ID_TASK_DONE, _("Cocher / &décocher la tâche\tCtrl+Shift+D"))
         m_fmt.AppendSeparator()
         m_fmt.Append(ID_LINK, _("&Lien...\tCtrl+K"))
+        m_fmt.Append(ID_FOOTNOTE, _("&Note de bas de page\tCtrl+Shift+F"))
+        m_fmt.Append(ID_TABLE, _("Ta&bleau...\tCtrl+T"))
         mb.Append(m_fmt, _("&Format"))
 
         # Affichage
@@ -221,6 +239,7 @@ class MainWindow(wx.Frame):
         b(self._on_save, wx.ID_SAVE)
         b(self._on_save_as, wx.ID_SAVEAS)
         b(self._on_export_html, ID_EXPORT_HTML)
+        b(self._on_preferences, ID_PREFS)
         b(lambda e: self.Close(), wx.ID_EXIT)
 
         b(lambda e: self.editor.Undo(), wx.ID_UNDO)
@@ -237,6 +256,7 @@ class MainWindow(wx.Frame):
         b(lambda e: self._do(self.actions.bold), ID_BOLD)
         b(lambda e: self._do(self.actions.italic), ID_ITALIC)
         b(lambda e: self._do(self.actions.inline_code), ID_CODE)
+        b(lambda e: self._do(self.actions.strikethrough), ID_STRIKE)
         b(lambda e: self._do(lambda: self.actions.heading(1)), ID_H1)
         b(lambda e: self._do(lambda: self.actions.heading(2)), ID_H2)
         b(lambda e: self._do(lambda: self.actions.heading(3)), ID_H3)
@@ -244,7 +264,11 @@ class MainWindow(wx.Frame):
         b(lambda e: self._do(self.actions.numbered_list), ID_OL)
         b(lambda e: self._do(self.actions.blockquote), ID_QUOTE)
         b(lambda e: self._do(self.actions.code_block), ID_CODEBLOCK)
+        b(lambda e: self._do(self.actions.task_item), ID_TASK)
+        b(lambda e: self._do(self.actions.toggle_done), ID_TASK_DONE)
+        b(lambda e: self._do(self.actions.footnote), ID_FOOTNOTE)
         b(self._on_link, ID_LINK)
+        b(self._on_table, ID_TABLE)
 
         b(self._on_toggle_preview, ID_TOGGLE_PREVIEW)
         b(self._on_outline, ID_OUTLINE)
@@ -346,6 +370,10 @@ class MainWindow(wx.Frame):
             if dlg.ShowModal() != wx.ID_OK:
                 return
             path = dlg.GetPath()
+        self._load_path(path)
+
+    def _load_path(self, path: str):
+        """Charge ``path`` dans l'éditeur (chemin commun au FileDialog et aux récents)."""
         try:
             text = self.document.load(path)
         except Exception as exc:
@@ -358,8 +386,38 @@ class MainWindow(wx.Frame):
         self.settings["last_folder"] = os.path.dirname(path)
         cfg.push_recent_file(self.settings, path)
         cfg.save(self.settings)
+        self._rebuild_recent_menu()
         self._update_title()
         speech.speak(_("Document ouvert : {name}").format(name=self.document.filename))
+
+    # ---- fichiers récents ---------------------------------------------
+
+    def _rebuild_recent_menu(self):
+        """Repeuple le sous-menu Fichiers récents depuis settings."""
+        for item in list(self.recent_menu.GetMenuItems()):
+            self.recent_menu.Delete(item)
+        recent = self.settings.get("recent_files", [])
+        if not recent:
+            item = self.recent_menu.Append(wx.ID_ANY, _("(aucun fichier récent)"))
+            item.Enable(False)
+            return
+        for path in recent:
+            item = self.recent_menu.Append(wx.ID_ANY, os.path.basename(path))
+            item.SetHelp(path)
+            self.Bind(wx.EVT_MENU, lambda e, p=path: self._open_recent(p), item)
+
+    def _open_recent(self, path: str):
+        if not self._confirm_discard():
+            return
+        if not os.path.exists(path):
+            wx.MessageBox(_("Le fichier est introuvable : {p}").format(p=path),
+                          APP_NAME, wx.OK | wx.ICON_ERROR)
+            recent = [p for p in self.settings.get("recent_files", []) if p != path]
+            self.settings["recent_files"] = recent
+            cfg.save(self.settings)
+            self._rebuild_recent_menu()
+            return
+        self._load_path(path)
 
     def _on_save(self, evt) -> bool:
         if not self.document.path:
@@ -393,6 +451,7 @@ class MainWindow(wx.Frame):
         self.settings["last_folder"] = os.path.dirname(path)
         cfg.push_recent_file(self.settings, path)
         cfg.save(self.settings)
+        self._rebuild_recent_menu()
         self._update_title()
         speech.speak(_("Enregistré"))
         return True
@@ -418,6 +477,24 @@ class MainWindow(wx.Frame):
             return
         speech.speak(_("Exporté en HTML"))
 
+    # ---- préférences ---------------------------------------------------
+
+    def _on_preferences(self, evt):
+        dlg = PreferencesDialog(
+            self,
+            language=self.settings.get("language", "auto"),
+            word_wrap=self.settings.get("word_wrap", True),
+        )
+        if dlg.ShowModal() == wx.ID_OK:
+            self.settings.update(dlg.get_values())
+            cfg.save(self.settings)
+            # Langue (installée au démarrage) et retour à la ligne (style posé à
+            # la création de l'éditeur) ne s'appliquent qu'au prochain lancement.
+            wx.MessageBox(
+                _("Les changements prendront effet au prochain démarrage."),
+                APP_NAME, wx.OK | wx.ICON_INFORMATION)
+        dlg.Destroy()
+
     # ---- format / lien -------------------------------------------------
 
     def _on_link(self, evt):
@@ -427,6 +504,13 @@ class MainWindow(wx.Frame):
             text, url = dlg.get_values()
             if url:
                 self._do(lambda: self.actions.insert_link(text or url, url))
+        dlg.Destroy()
+
+    def _on_table(self, evt):
+        dlg = TableDialog(self)
+        if dlg.ShowModal() == wx.ID_OK:
+            rows, cols, header = dlg.get_values()
+            self._do(lambda: self.actions.insert_table(rows, cols, header))
         dlg.Destroy()
 
     # ---- recherche -----------------------------------------------------
@@ -547,10 +631,11 @@ class MainWindow(wx.Frame):
             "Raccourcis clavier :\n\n"
             "Ctrl+N Nouveau, Ctrl+O Ouvrir, Ctrl+S Enregistrer\n"
             "Ctrl+F Rechercher, F3 / Maj+F3 Suivant / Précédent\n"
-            "Ctrl+B Gras, Ctrl+I Italique, Ctrl+` Code\n"
-            "Ctrl+1/2/3 Titres, Ctrl+K Lien\n"
+            "Ctrl+B Gras, Ctrl+I Italique, Ctrl+` Code, Ctrl+Maj+X Barré\n"
+            "Ctrl+1/2/3 Titres, Ctrl+K Lien, Ctrl+T Tableau\n"
             "Ctrl+Maj+U Liste à puces, Ctrl+Maj+L Liste numérotée\n"
             "Ctrl+Q Citation, Ctrl+Maj+K Bloc de code\n"
+            "Ctrl+Maj+T Tâche, Ctrl+Maj+D Cocher/décocher, Ctrl+Maj+F Note\n"
             "F6 Aperçu HTML, Ctrl+Maj+O Plan\n"
             "Alt+Bas / Alt+Haut Titre suivant / précédent"
         )
