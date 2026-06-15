@@ -24,16 +24,27 @@ Ajouter / retirer une dépendance : `uv add <pkg>` / `uv remove <pkg>`
 
 Pas de tests ni de linter configurés pour l'instant.
 
-## Packaging .exe (pas encore fait — plan figé)
+## Packaging .exe + installeur (recette figée, pas encore buildé)
 
-Cible : **PyInstaller** via uv (cohérent avec AudibleDecoder/DownAccess).
+Cible : **PyInstaller onedir** + **installeur Inno Setup** (et non `--onefile`).
+Ce choix est imposé par l'auto-updateur (voir plus bas) : l'asset GitHub est un
+`MarkdownAccess-Setup.exe` lancé en `/SILENT`, cohérent avec
+DownAccess/UniversalTranscoder.
 
 ```bash
 uv add --dev pyinstaller
-uv run pyinstaller --onefile --windowed main.py
+uv run pyinstaller markdownaccess.spec          # -> dist/MarkdownAccess/ (dossier)
+ISCC.exe installer\markdownaccess.iss           # -> dist/MarkdownAccess-Setup.exe
 ```
 
-Pièges spécifiques à anticiper (vérifiés sur la doc officielle des deps) :
+- `markdownaccess.spec` : recette onedir reproductible (datas + hidden imports).
+- `installer/markdownaccess.iss` : install **par-utilisateur** (`PrivilegesRequired=
+  lowest`, pas d'UAC → silencieux possible), `AppId` GUID **fixe** (identité pour
+  les MAJ, ne jamais changer), section `[Run]` **sans `skipifsilent`** pour que
+  l'app **redémarre** après une install silencieuse.
+
+Pièges spécifiques à anticiper (vérifiés sur la doc officielle des deps), déjà
+encodés dans le `.spec` :
 - **`locales/`** : fichiers de données, non vus par PyInstaller → les ajouter
   (`--add-data "locales;locales"`) sinon l'anglais disparaît dans l'exe. Ce sont
   les `.mo` compilés qui comptent (cf. `polib` ci-dessous).
@@ -46,16 +57,36 @@ Pièges spécifiques à anticiper (vérifiés sur la doc officielle des deps) :
   dynamiquement → `--hidden-import mdit_py_plugins.footnote --hidden-import
   mdit_py_plugins.tasklists` (ou `collect_submodules`), sinon l'aperçu plante.
 - **WebView2** (aperçu F6) : `WebView2Loader.dll` n'est pas détectée
-  automatiquement → l'inclure (`--add-binary`). Le backend Edge dépend aussi du
-  runtime WebView2 (présent sur la plupart des Win11) ; le repli `webbrowser.open`
-  couvre l'absence. À tester sur une machine « propre ».
+  automatiquement → le `.spec` la cherche dans wxPython et la place à la racine.
+  Le backend Edge dépend aussi du runtime WebView2 (présent sur la plupart des
+  Win11) ; le repli `webbrowser.open` couvre l'absence. À tester sur une machine
+  « propre ».
 
 `polib` n'est utile **qu'au build** (compilation `.po` → `.mo`), pas au runtime
 (c'est `gettext` qui lit le `.mo`) → le passer en `uv add --dev polib`, il n'a pas
 à être embarqué dans l'exe.
 
-À terme : figer toutes ces options dans un `.spec` (recette reproductible). Détails
-par dépendance dans la mémoire (`ref-*` : accessible-output2, mdit-py-plugins, etc.).
+Détails par dépendance dans la mémoire (`ref-*` : accessible-output2,
+mdit-py-plugins, etc.).
+
+## Auto-updateur (GitHub Releases)
+
+`app/core/updater.py` + `app/ui/update_dialog.py` + `app/core/app_info.py`
+(adaptés de UniversalTranscoder). Vérif **au démarrage** (notif seulement, pas
+d'install auto — protège le travail) et via **Aide → Vérifier les mises à jour**.
+- **Canal beta** opt-in (`settings.update_channel`) : inclut les releases
+  `prerelease`. Stable les ignore.
+- **Sécurité** : SHA-256 vérifié contre le champ `digest` de l'asset GitHub
+  (rien à publier à la main).
+- **Install** : `MarkdownAccess-Setup.exe` lancé en `/SILENT` après fermeture de
+  l'app ; redémarrage via `[Run]` Inno.
+- **Garde dev** : `updater.is_frozen()` → en `uv run`, l'install est désactivée.
+
+**Process de release :** bump `app/version.py` → build (ci-dessus) → créer la
+release GitHub (tag `vX.Y.Z`, cocher *prerelease* pour une beta) → **uploader**
+`MarkdownAccess-Setup.exe`. Notes bilingues dans le corps via marqueurs :
+`<!-- MDA-NOTES:fr:start -->…<!-- MDA-NOTES:fr:end -->` (et `:en:`). La langue
+affichée suit `i18n.get_current_language_code()`.
 
 ## Règles d'accessibilité (non négociables)
 
